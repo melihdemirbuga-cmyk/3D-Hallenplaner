@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>3D Hallenplaner v1</title>
+    <meta
+      name="description"
+      content="Browserbasierter 3D Hallenplaner für Sportunterricht, Stationen und Hallenaufbauten."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script src="./models/manifest.js"></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body class="chrome-collapsed">
+    <div class="app-shell">
+      <div class="top-chrome">
+        <header class="topbar">
+          <div class="brand">
+            <img class="brand-logo" src="./Assets/ui-logo.png" alt="Hallenplaner" />
+          </div>
+          <div class="top-actions" aria-label="Datei und Export">
+            <button id="chromeToggleBtn" type="button" title="Blendet Name, Klasse, Titel und Dauer ein oder aus. So bleibt mehr Platz für das Arbeitsfeld.">
+              Angaben anzeigen
+            </button>
+            <button id="newPlanBtn" class="icon-action" type="button" title="Neu" aria-label="Neu">
+              <img src="./Assets/ui-new.png" alt="" />
+              <span class="sr-only">Neu</span>
+            </button>
+            <button id="undoBtn" class="icon-action" type="button" title="Zurück" aria-label="Zurück" disabled>
+              <img src="./Assets/ui-undo.png" alt="" />
+              <span class="sr-only">Zurück</span>
+            </button>
+            <button id="redoBtn" class="icon-action" type="button" title="Vor" aria-label="Vor" disabled>
+              <img src="./Assets/ui-redo.png" alt="" />
+              <span class="sr-only">Vor</span>
+            </button>
+            <button id="savePlanBtn" type="button">Plan speichern</button>
+            <label class="button file-button" for="loadPlanInput">Plan laden</label>
+            <input id="loadPlanInput" type="file" accept="application/json,.json" />
+            <button id="exportPngBtn" type="button">PNG</button>
+            <button id="printBtn" class="primary" type="button">PDF erstellen</button>
+          </div>
+        </header>
+
+        <section class="meta-strip" aria-label="Angaben zur Abgabe">
+          <label>
+            Name
+            <input id="studentName" autocomplete="name" placeholder="z. B. Max Mustermann" />
+          </label>
+          <label>
+            Klasse
+            <input id="studentClass" placeholder="z. B. 8b" />
+          </label>
+          <label>
+            Titel
+            <input id="lessonTitle" placeholder="z. B. Chaosball-Erwaermung" />
+          </label>
+          <label>
+            Dauer
+            <input id="duration" placeholder="z. B. 10 Minuten" />
+          </label>
+        </section>
+      </div>
+
+      <main id="workspace" class="workspace">
+        <aside id="libraryPanel" class="library-panel" aria-label="Materialbibliothek">
+          <div class="panel-heading">
+            <div>
+              <h1>Material</h1>
+              <p id="assetCount">0 Geräte</p>
+            </div>
+            <button id="customImageBtn" class="panel-icon-button" type="button" title="Eigenes 2D-Bild als Bodenmaterial hinzufügen" aria-label="Eigenes 2D-Bild hinzufügen">+</button>
+            <input id="customImageInput" class="hidden-file-input" type="file" accept="image/*" />
+          </div>
+          <label class="search-label">
+            Suchen
+            <input id="assetSearch" type="search" placeholder="Ball, Bank, Matte ..." />
+          </label>
+          <div id="categoryTabs" class="category-tabs" aria-label="Kategorien"></div>
+          <div id="assetList" class="asset-grid" aria-live="polite"></div>
+        </aside>
+
+        <div id="leftResizer" class="panel-resizer" role="separator" aria-label="Materialleiste breiter oder schmaler ziehen" aria-orientation="vertical"></div>
+
+        <section id="plannerPanel" class="planner-panel" aria-label="Arbeitsfläche">
+          <div class="plan-tabs" aria-label="Pläne">
+            <div id="planTabs" class="plan-tab-list"></div>
+            <button id="addPlanTabBtn" class="plan-tab-add" type="button" title="Neuen Plan anlegen" aria-label="Neuen Plan anlegen">+</button>
+          </div>
+
+          <div class="planner-toolbar">
+            <label title="Wählt das echte Hallenlayout oder eine einfache Box als Arbeitsfläche.">
+              Halle
+              <select id="hallSelect">
+                <option value="realComplete" selected>Echte Halle komplett</option>
+                <option value="realLarge">Echte große Hallenhälfte</option>
+                <option value="realSmall">Echte kleine Hallenhälfte</option>
+                <option value="small">Einfache Box 20 x 10 m</option>
+                <option value="large">Einfache Box 20 x 20 m</option>
+              </select>
+            </label>
+            <label title="Bei echten Hallenlayouts sind die Linien im Modell fest eingebaut; einfache Boxen können umgeschaltet werden.">
+              Linien
+              <select id="lineSelect">
+                <option value="mixed">Gemischt</option>
+                <option value="neutral">Neutral</option>
+                <option value="basketball">Basketball</option>
+                <option value="volleyball">Volleyball</option>
+                <option value="handball">Handball</option>
+              </select>
+            </label>
+            <label class="toggle-row" title="Zeigt ein feines Raster auf dem Hallenboden, damit Abstände leichter eingeschätzt werden.">
+              <input id="gridToggle" type="checkbox" checked />
+              Raster
+            </label>
+            <label class="zoom-row" title="Vergrößert oder verkleinert den Kamerablick, ohne Objekte zu verändern." hidden>
+              Zoom
+              <input id="zoomSlider" type="range" min="70" max="170" value="100" />
+              <span id="zoomValue">100%</span>
+            </label>
+            <label title="Snap legt die Drehschritte fest. Bei 45 Grad drehen die Schnellbuttons und der Dreh-Gizmo in 45-Grad-Schritten." hidden>
+              Snap
+              <select id="snapSelect">
+                <option value="15" selected>15 Grad</option>
+                <option value="5">5 Grad</option>
+                <option value="30">30 Grad</option>
+                <option value="45">45 Grad</option>
+                <option value="90">90 Grad</option>
+              </select>
+            </label>
+            <label class="toggle-row" title="Wenn aktiv, rasten Objekte beim Drehen nahe am gewählten Winkel ein." hidden>
+              <input id="snapToggle" type="checkbox" checked />
+              Winkelsnap
+            </label>
+            <label title="Schnelle Kameraperspektiven für die Hallenecken und den Aufbau." hidden>
+              Kamera
+              <select id="cameraViewSelect">
+                <option value="open">Innen offen</option>
+                <option value="right">Rechte Innenkante</option>
+                <option value="left">Linke Innenkante</option>
+                <option value="low">Niedrig innen</option>
+                <option value="top">Vogelblick</option>
+              </select>
+            </label>
+            <label class="zoom-row" title="Hebt oder senkt die Kamera. Niedrig wirkt näher, hoch zeigt mehr vom Aufbau." hidden>
+              Blickhöhe
+              <input id="cameraTiltSlider" type="range" min="30" max="88" value="52" />
+              <span id="cameraTiltValue">52</span>
+            </label>
+            <div class="quick-actions" aria-label="Schnellaktionen">
+              <button id="quickNewBtn" class="icon-action" type="button" title="Neu" aria-label="Neu">
+                <img src="./Assets/ui-new.png" alt="" />
+                <span class="sr-only">Neu</span>
+              </button>
+              <button id="quickUndoBtn" class="icon-action" type="button" title="Zurück" aria-label="Zurück" disabled>
+                <img src="./Assets/ui-undo.png" alt="" />
+                <span class="sr-only">Zurück</span>
+              </button>
+              <button id="quickRedoBtn" class="icon-action" type="button" title="Vor" aria-label="Vor" disabled>
+                <img src="./Assets/ui-redo.png" alt="" />
+                <span class="sr-only">Vor</span>
+              </button>
+            </div>
+            <button id="fullscreenBtn" class="fullscreen-button" type="button" title="Feld vergrößern" aria-label="Feld vergrößern">
+              <img src="./Assets/ui-fullscreen.png" alt="" />
+              <span class="sr-only">Feld vergrößern</span>
+            </button>
+            <button id="toolbarToggleBtn" type="button" title="Blendet Werkzeuge, Varianten und Vorlagen ein oder aus, damit die Bühne größer wird.">
+              Werkzeuge einklappen
+            </button>
+          </div>
+
+          <div class="tool-row" aria-label="Werkzeuge">
+            <button class="tool-button active" type="button" data-tool="select">Auswählen</button>
+            <button class="tool-button" type="button" data-tool="text">Text</button>
+            <button class="tool-button" type="button" data-tool="number">Nummer</button>
+            <button class="tool-button" type="button" data-tool="people">Personen</button>
+            <button class="tool-button" type="button" data-tool="line">Linie</button>
+            <button class="tool-button" type="button" data-tool="arrow">Pfeil</button>
+            <button class="tool-button" type="button" data-tool="zone">Zone</button>
+          </div>
+
+          <div id="variantBar" class="variant-bar" aria-label="Varianten" hidden></div>
+
+          <div class="stage-shell">
+            <div id="viewport" class="viewport" tabindex="0"></div>
+            <div id="loadingOverlay" class="loading-overlay" hidden>
+              <span></span>
+            </div>
+            <div id="dropHint" class="drop-hint" hidden>Ablegen</div>
+            <div id="sceneStatus" class="scene-status" hidden></div>
+          </div>
+
+          <div class="template-row" aria-label="Schnelle Vorlagen">
+            <span>Vorlagen</span>
+            <button type="button" data-template="warmup">Freies Aufwärmen</button>
+            <button type="button" data-template="circuit">Stationszirkel</button>
+            <button type="button" data-template="tag">Fangspiel</button>
+            <button type="button" data-template="relay">Staffel</button>
+          </div>
+        </section>
+
+        <div id="rightResizer" class="panel-resizer" role="separator" aria-label="Objektleiste breiter oder schmaler ziehen" aria-orientation="vertical"></div>
+
+        <aside class="inspector-panel" aria-label="Objekt und Planung">
+          <section class="inspector-section">
+            <div class="panel-heading">
+              <div>
+                <h2>Objekt</h2>
+                <p id="selectionName">Nichts ausgewählt</p>
+              </div>
+            </div>
+            <div id="objectControls" class="object-controls muted-block" hidden></div>
+          </section>
+
+          <section class="inspector-section">
+            <h2>Schülerabgabe</h2>
+            <label>
+              Ziel
+              <textarea id="goal" rows="2" placeholder="Was soll die Erwärmung vorbereiten?"></textarea>
+            </label>
+            <label>
+              Ablauf
+              <textarea id="description" rows="4" placeholder="Kurze Beschreibung des Aufbaus und der Regeln"></textarea>
+            </label>
+            <label>
+              Variation
+              <textarea id="variation" rows="2" placeholder="Leichter, schwerer oder alternative Regel"></textarea>
+            </label>
+            <label>
+              Sicherheit
+              <textarea id="safety" rows="2" placeholder="Abstände, Laufwege, Geräte sichern ..."></textarea>
+            </label>
+          </section>
+
+          <section class="inspector-section">
+            <div class="summary-heading">
+              <h2>Materialliste</h2>
+              <button id="copyMaterialBtn" type="button">Übernehmen</button>
+            </div>
+            <textarea id="materialNotes" rows="3" placeholder="Material wird automatisch gezählt"></textarea>
+            <div id="materialSummary" class="material-summary">Noch kein Material im Plan.</div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <section id="printSheet" aria-hidden="true">
+      <div class="print-page">
+        <header class="print-header">
+          <div>
+            <p class="print-kicker">3D Hallenplan</p>
+            <h1 id="printTitle">Hallenplan</h1>
+          </div>
+          <dl>
+            <div><dt>Name</dt><dd id="printName"></dd></div>
+            <div><dt>Klasse</dt><dd id="printClass"></dd></div>
+            <div><dt>Dauer</dt><dd id="printDuration"></dd></div>
+          </dl>
+        </header>
+        <div id="printCanvas" class="print-canvas"></div>
+        <section class="print-details">
+          <div>
+            <h2>Ziel</h2>
+            <p id="printGoal"></p>
+          </div>
+          <div>
+            <h2>Material</h2>
+            <p id="printMaterial"></p>
+          </div>
+          <div class="wide">
+            <h2>Ablauf</h2>
+            <p id="printDescription"></p>
+          </div>
+          <div>
+            <h2>Variation</h2>
+            <p id="printVariation"></p>
+          </div>
+          <div>
+            <h2>Sicherheit</h2>
+            <p id="printSafety"></p>
+          </div>
+        </section>
+      </div>
+    </section>
+  </body>
+</html>
